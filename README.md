@@ -13,12 +13,28 @@ It is designed for Linux servers running Claude Code, especially workflows invol
 - multi-host batch scripts
 - `.lock` files, database copies, stale jobs, and failed sample recovery
 
-## Install On Linux Server
+## Install From GitHub On Linux Server
 
-Upload this whole project directory to the Linux server, then run:
+On the Linux server where Claude Code is installed, clone this repository and run the installer:
 
 ```bash
-cd /path/to/meta-anno && bash install.sh
+git clone https://github.com/SkinMicrobe/meta-anno.git
+cd meta-anno
+bash install.sh
+```
+
+One-line install:
+
+```bash
+git clone https://github.com/SkinMicrobe/meta-anno.git && cd meta-anno && bash install.sh
+```
+
+If the directory already exists, update it instead:
+
+```bash
+cd meta-anno
+git pull
+bash install.sh
 ```
 
 The installer copies the skill from:
@@ -141,10 +157,12 @@ Common statuses:
 
 ## Update
 
-After editing this project locally or uploading a newer version to the server, reinstall with:
+Pull the newest version from GitHub and reinstall:
 
 ```bash
-cd /path/to/meta-anno && bash install.sh
+cd /path/to/meta-anno
+git pull
+bash install.sh
 ```
 
 ## Uninstall
@@ -160,5 +178,6 @@ Restart Claude Code if `/meta-anno` is still shown from an older session.
 ## Notes
 
 - This project is Linux-first. Use `install.sh` on the server.
+- Install from GitHub with `git clone https://github.com/SkinMicrobe/meta-anno.git`.
 - Keep the skill directory name as `meta-anno`; Claude Code uses that name for `/meta-anno`.
 - Do not move `SKILL.md` out of `.claude/skills/meta-anno/`.
