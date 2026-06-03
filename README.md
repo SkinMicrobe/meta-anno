@@ -13,28 +13,12 @@ It is designed for Linux servers running Claude Code, especially workflows invol
 - multi-host batch scripts
 - `.lock` files, database copies, stale jobs, and failed sample recovery
 
-## Install From GitHub On Linux Server
+## Install On Linux Server
 
-On the Linux server where Claude Code is installed, clone this repository and run the installer:
-
-```bash
-git clone https://github.com/SkinMicrobe/meta-anno.git
-cd meta-anno
-bash install.sh
-```
-
-One-line install:
+Upload this whole project directory to the Linux server, then run:
 
 ```bash
-git clone https://github.com/SkinMicrobe/meta-anno.git && cd meta-anno && bash install.sh
-```
-
-If the directory already exists, update it instead:
-
-```bash
-cd meta-anno
-git pull
-bash install.sh
+cd /path/to/meta-anno && bash install.sh
 ```
 
 The installer copies the skill from:
@@ -49,11 +33,7 @@ to:
 ~/.claude/skills/meta-anno
 ```
 
-If an old `meta-anno` skill already exists, `install.sh` backs it up first as:
-
-```text
-~/.claude/skills/meta-anno.backup.YYYYMMDD-HHMMSS
-```
+If an old `meta-anno` skill already exists, `install.sh` removes it and installs the current project copy.
 
 ## Use In Claude Code
 
@@ -111,6 +91,7 @@ Important files:
 - `references/tool-guide.md`: explains what each command-line tool does in the workflow, including inputs, outputs, and common failure modes.
 - `references/tool-help.md`: captured long help text and install/version checks for DIAMOND, RGI, eggNOG, and database download commands.
 - `references/output-examples.md`: captured example outputs for DIAMOND, eggNOG, RGI, VFDB, stale-lock logs, and runtime notes.
+- `references/smgc-2021-natmicrobiol.md`: distilled workflow understanding from the SMGC 2021 Nature Microbiology paper.
 - `scripts/check-meta-anno.sh`: helper script for scanning eggNOG sample folders.
 - `install.sh`: Linux installer for Claude Code.
 
@@ -125,13 +106,13 @@ After installation, the helper scanner is available at:
 Usage:
 
 ```bash
-bash ~/.claude/skills/meta-anno/scripts/check-meta-anno.sh /path/to/02_function
+bash ~/.claude/skills/meta-anno/scripts/check-meta-anno.sh /path/to/confirmed_function_dir
 ```
 
 It expects a sample layout like:
 
 ```text
-02_function/
+confirmed_function_dir/
 ├── sampleA/
 │   ├── sampleA.clean.faa
 │   ├── eggNOG.emapper.annotations
@@ -157,12 +138,10 @@ Common statuses:
 
 ## Update
 
-Pull the newest version from GitHub and reinstall:
+After editing this project locally or uploading a newer version to the server, reinstall with:
 
 ```bash
-cd /path/to/meta-anno
-git pull
-bash install.sh
+cd /path/to/meta-anno && bash install.sh
 ```
 
 ## Uninstall
@@ -178,6 +157,5 @@ Restart Claude Code if `/meta-anno` is still shown from an older session.
 ## Notes
 
 - This project is Linux-first. Use `install.sh` on the server.
-- Install from GitHub with `git clone https://github.com/SkinMicrobe/meta-anno.git`.
 - Keep the skill directory name as `meta-anno`; Claude Code uses that name for `/meta-anno`.
 - Do not move `SKILL.md` out of `.claude/skills/meta-anno/`.

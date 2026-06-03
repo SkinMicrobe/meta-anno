@@ -147,6 +147,12 @@ Inputs:
 - Protein FASTA (`.faa`, usually `sample.clean.faa`).
 - eggNOG database directory.
 
+Input-type note:
+
+- eggNOG mapper has modes that can work from nucleotide sequences, but in this workflow prefer explicit protein FASTA input.
+- If the user provides nucleotide contigs/MAGs/assemblies, add a gene/ORF prediction stage first and feed the resulting `.faa` into eggNOG.
+- This avoids slow nucleotide-mode annotation, makes input integrity easier to check, and gives clearer resource estimates.
+
 Outputs:
 
 - `eggNOG.emapper.annotations`: final functional annotation table.

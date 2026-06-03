@@ -1,6 +1,6 @@
 # Output Examples Reference
 
-Use this file when interpreting result schemas, validating output shape, or comparing user logs to known examples from the meta-annotation workflow. These examples are historical snapshots from the user's notes and should not be treated as required biological results.
+Use this file when interpreting result schemas, validating output shape, or comparing user logs to known examples from the meta-annotation workflow. These examples are historical snapshots from the user's notes and should not be treated as required biological results or fixed directory naming conventions.
 
 ## DIAMOND CAZyme outfmt 6 Example
 

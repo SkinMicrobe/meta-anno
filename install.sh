@@ -15,9 +15,8 @@ target="${skills_root}/meta-anno"
 mkdir -p "$skills_root"
 
 if [[ -e "$target" ]]; then
-  backup="${skills_root}/meta-anno.backup.$(date +%Y%m%d-%H%M%S)"
-  mv "$target" "$backup"
-  echo "Existing skill backed up to: $backup"
+  rm -rf "$target"
+  echo "Removed existing skill: $target"
 fi
 
 cp -R "$source_dir" "$target"

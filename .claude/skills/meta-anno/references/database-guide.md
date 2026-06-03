@@ -4,12 +4,15 @@ Use this file when explaining what each annotation database contains, what biolo
 
 ## Overview
 
-| Database | Main question answered | Input in this workflow | Main evidence type | Typical output interpretation |
+The table includes both functional annotation databases and reference catalogues. SMGC is a skin microbiome catalogue/resource, not a direct replacement for eggNOG, CARD, CAZy or VFDB.
+
+| Resource | Main question answered | Input in this workflow | Main evidence type | Typical output interpretation |
 | --- | --- | --- | --- | --- |
 | CAZy / CAZyme | What carbohydrate-active enzyme families are present? | Protein ORFs `.faa` | Protein homology to CAZy families | Glycoside hydrolases, glycosyltransferases, carbohydrate esterases, polysaccharide lyases, auxiliary activities, binding modules |
 | eggNOG | What broad functional, orthology, pathway, and domain annotations fit each protein? | Protein ORFs `.faa` | Orthology transfer from eggNOG groups | COG category, description, gene name, GO, EC, KEGG, BRITE, CAZy, PFAM |
 | CARD via RGI | Which antimicrobial resistance genes or resistance-associated variants are present? | Cleaned protein ORFs `.faa` | CARD resistance models and curated ARO ontology | AMR gene family, drug class, resistance mechanism, strict/perfect/loose hit class |
 | VFDB | Which virulence-factor-like genes are present? | Protein ORFs `.faa` | Protein homology to virulence factor sequences | Candidate virulence factor IDs, genes, and related pathogenicity functions |
+| SMGC | Which skin microbial genomes/viral contigs can improve skin read classification and catalogue-based interpretation? | Reads, assemblies, MAGs, isolate genomes, viral contigs | Skin-specific genome and viral catalogue from cultivation plus metagenomics | Improved skin read assignment, genome-centred prevalence/abundance, skin-specific taxa and viral diversity |
 
 ## CAZy / CAZyme
 
@@ -137,6 +140,7 @@ Use the database that matches the biological question:
 | Antibiotic resistance | CARD/RGI |
 | Virulence factors | VFDB |
 | Protein domains | eggNOG PFAM field or a direct Pfam workflow if available |
+| Skin microbiome genome catalogue, MAG comparison, or skin read classification | SMGC-style catalogue/reference mapping; see `references/smgc-2021-natmicrobiol.md` |
 
 When databases disagree:
 
