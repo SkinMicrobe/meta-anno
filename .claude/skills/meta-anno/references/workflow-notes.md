@@ -6,14 +6,15 @@ This reference distills the user's current metagenome annotation notes.
 
 | Tool | Purpose | Typical output |
 | --- | --- | --- |
-| DIAMOND `blastp` | Protein-to-protein search against CAZyme or VFDB databases | BLAST outfmt 6 TSV |
+| DIAMOND `blastp` | Protein-to-protein search against CAZyme, bacterial VFDB, or fungal FungAMR databases | BLAST outfmt 6 TSV |
 | DIAMOND `makedb` | Build local `.dmnd` search databases from FASTA references | `*.dmnd` |
 | eggNOG `emapper.py` | Orthology search and functional annotation | `eggNOG.emapper.annotations`, `*.seed_orthologs` |
-| Prodigal | Current first-pass prokaryotic gene/ORF prediction from nucleotide MAGs/contigs to protein `.faa` | Protein FASTA `.faa`, nucleotide CDS if requested |
-| MetaEuk | Reserved eukaryotic gene prediction branch for later extension | Eukaryotic protein predictions |
-| geNomad | Reserved bacterial branch per current speaker-intended routing | geNomad outputs, to be specified when that branch is implemented |
+| Prodigal | Bacterial/prokaryotic gene/ORF prediction from nucleotide MAGs/contigs to protein `.faa` | Protein FASTA `.faa`, nucleotide CDS if requested |
+| MetaEuk | Fungal gene prediction branch from nucleotide input to protein predictions | Fungal/eukaryotic protein predictions |
+| geNomad | Viral branch for viral sequence identification/annotation | geNomad outputs, to be specified when that branch is implemented |
 | Barrnap | Current rRNA prediction replacement for the original SMGC `INFERNAL`/`cmsearch` step | rRNA feature calls and downstream rRNA summaries |
 | RGI/CARD | Antibiotic resistance gene detection | `RGI.txt` and RGI auxiliary outputs |
+| FungAMR | Fungi-branch virulence-factor annotation in the user's workflow | FungAMR DIAMOND TSV, followed by validated CSV conversion |
 | `screen` | Long-running detached terminal sessions with log capture | screen log files |
 | `nohup` | Detached monitoring or helper scripts outside screen | `nohup.out` unless redirected |
 
@@ -43,19 +44,116 @@ Required parameters or inferred fields:
 
 ```text
 input_sequence_type = protein | nucleotide | auto
-organism_type = prokaryote | eukaryote | bacteria | mixed
+organism_type = bacteria | fungi | virus | unclassified | prokaryote | eukaryote | mixed
+taxonomy_classifier = existing | kraken2 | deepmicroclass | auto
 prediction_tool = existing_faa | prodigal | metaeuk | genomad | auto
 ```
 
 Current implementation stance:
 
-- First make the prokaryotic branch work reliably.
-- For `input_sequence_type=protein`, require existing `.faa` files and validate non-empty protein counts before eggNOG/CARD/VFDB/CAZy.
-- For `input_sequence_type=nucleotide` with `organism_type=prokaryote`, run or require a Prodigal-style ORF prediction step first, then use the resulting `.faa` for functional annotation.
-- Do not send nucleotide MAGs/contigs directly into the functional annotation plan just because eggNOG can accept nucleotide input. It is usually slower and harder to resource-control than working from explicit `.faa`.
-- Keep extension points for later: `organism_type=eukaryote` should route to `metaeuk`; `organism_type=bacteria` should route to `genomad` per the current speaker-intended workflow; `organism_type=mixed` should remain a parameterized branch rather than being silently forced into one tool.
+- First make the bacterial/prokaryotic branch work reliably when that is the confirmed target.
+- If the input is contigs and the biological source is unclear, default the organism branch to `mixed contigs`. Do not infer `bacteria` or `prokaryote` from the path/name alone.
+- Mixed-contig taxonomic classification may use `Kraken2` or `DeepMicroClass` (`DMC`). `Kraken2` is the faster preliminary option but can produce unreliable or overconfident assignments; `DMC` is slower but should be preferred when classification accuracy is more important than speed.
+- Treat Kraken2 branch assignments as provisional evidence requiring cautious interpretation. Do not turn a Kraken2 label into a certain biological conclusion without supporting evidence.
+- Reuse existing valid Kraken2/DMC outputs when available. If the user specifies a classifier, keep that classifier; if it is missing, try to activate or install it in the user-confirmed environment rather than silently switching tools.
+- For `input_sequence_type=protein`, require existing `.faa` files and validate non-empty protein counts before the branch-appropriate eggNOG/CARD/VFDB/FungAMR/CAZy workflow.
+- For `input_sequence_type=nucleotide` with `organism_type=bacteria` or `organism_type=prokaryote`, run or require a Prodigal-style ORF prediction step first, then use the resulting `.faa` for functional annotation.
+- For `organism_type=unclassified`, run or require a Prodigal-style ORF prediction step first, then use the resulting `.faa` for functional annotation. This is a handling rule, not a taxonomic claim.
+- For `organism_type=fungi`, route nucleotide input through MetaEuk before functional annotation.
+- For `organism_type=virus`, route viral analysis through geNomad.
+- For branch-specific virulence annotation, use VFDB for bacterial/prokaryotic proteins and FungAMR for fungi proteins. Do not treat VFDB as the fungi virulence database.
+- The FungAMR query input is the validated fungi `.faa` produced by MetaEuk. If FungAMR is missing, attempt to locate or prepare that database; do not silently replace it with VFDB.
+- Do not send nucleotide MAGs/contigs directly into the functional annotation plan. In this skill's workflow, functional annotation requires validated protein `.faa` input produced by the appropriate upstream prediction/translation branch.
+- Keep extension points explicit: broad `organism_type=eukaryote` needs a confirmed sub-branch before assuming MetaEuk; `organism_type=mixed` should remain the default for unclear contigs and should be split/classified into available branches when evidence exists. Use `prodigal` for unclassified contigs but keep outputs labeled as unclassified, for example `unclassified_prodigal`.
 - If the user has already run Prodigal and a valid `8_prodigal/faa/` or equivalent protein directory exists, do not rerun prediction by default. Validate and use the existing `.faa`.
-- If only nucleotide FASTA is present, make the next safe action "predict proteins first" rather than "start eggNOG".
+- If only nucleotide FASTA is present, make the next safe action "predict/translate to protein `.faa` first" rather than "start annotation".
+
+Missing-tool rule:
+
+- Do not change biological routing because a tool is missing. If `genomad` is missing for viral contigs, do not substitute Prodigal; if `metaeuk` is missing for fungal contigs, do not substitute Prodigal; if `prodigal` is missing for bacterial/prokaryotic/unclassified contigs, do not substitute another tool.
+- Do not replace a requested `Kraken2` classification with `DeepMicroClass`, or vice versa, solely because one tool is missing.
+- First try the correct conda environment or install the missing tool in the user-confirmed environment. If installation is not possible, report that branch as blocked and keep the intended route unchanged.
+
+## Batch Sizing From Input Files
+
+Compute batches from the actual input files whenever the directory can be inspected or the user provides counts/sizes.
+
+Required input-size fields:
+
+```text
+input_count
+total_input_bytes
+largest_input_bytes
+target_batch_bytes
+expected_batches = ceil(total_input_bytes / target_batch_bytes)
+```
+
+Rules:
+
+- For contigs or other nucleotide FASTA input, split into smaller files before gene prediction or annotation planning.
+- Use file-size grouping when many files already exist; avoid making a giant intermediate FASTA on Ceph only to split it again.
+- If a single input file is larger than the target batch size, split that file first, then include the pieces in the batch plan.
+- Keep the default target below about `1G` per FASTA chunk unless live resource measurements justify a different size.
+- Label units accurately: chunks/batches are not samples, MAGs, or contigs unless that is the real unit.
+
+## Continuous Resource And I/O Monitoring
+
+Resource checks are not one-time preflight checks. For production runs, keep monitoring CPU, memory, and read/write I/O throughout the run.
+
+Minimum signals:
+
+```bash
+date -Is
+free -h
+df -h /tmp "$PWD" 2>/dev/null
+iostat -xz 5 2
+ps -eo pid,ppid,stat,pcpu,pmem,rss,etime,cmd | grep -Ei 'emapper|mmseqs|diamond|rgi|prodigal|genomad|metaeuk|barrnap' | grep -v grep
+```
+
+Interpretation:
+
+- Use `MemAvailable` and active process RSS to decide whether another batch can start.
+- Use CPU `%idle` and process `%CPU` to decide whether CPU is really saturated.
+- Use `%iowait`, device `%util`, and read/write throughput from `iostat` to estimate how much the run is I/O-bound.
+- If I/O wait or device utilization stays high, lower `max_jobs` even when CPU threads and memory look sufficient.
+- Save monitor output under `$output_root/logs/` so later advice can be based on evidence rather than memory.
+
+## Multi-Server Shared-Path Execution
+
+The user's tutorial includes C2/C4 runs where both servers see the same Ceph path and split work with `HOST_INDEX=0` / `HOST_INDEX=1`. This is an example of the general `HOST_INDEX` / `HOST_COUNT` pattern, not a two-server limit.
+
+Default rule:
+
+- If the user does not explicitly request multiple servers, plan for the current server only and use `HOST_COUNT=1` conceptually.
+- Do not infer that C2, C4, or any other server should be used just because the path is on shared Ceph.
+- From Claude Code running on one server, other servers' runtime state is not visible by default. Shared paths may show files, logs and timestamps, but not remote processes, `screen` sessions, CPU/RAM usage or I/O wait.
+
+Use the multi-server model only when the user wants to avoid overloading one server and confirms the participating servers:
+
+- Split the manifest explicitly with user-confirmed `HOST_COUNT=N` and one `HOST_INDEX` per server, so each server owns a deterministic subset. This may be 2, 3, 4 or more servers depending on the user's current resource plan.
+- Keep `.lock` files atomic and include `hostname`, PID, timestamp and sample/batch path in the lock content.
+- Use a separate `screen`/`tmux` session on each launching server.
+- Keep per-host monitor logs, PID files and exit-code files under the confirmed output root.
+- Assign database copies deliberately. Do not let every host read the same database copy when separate copies exist.
+- Use host-specific temp directories such as `$output_root/tmp/$HOSTNAME/...` when possible to avoid temp collisions.
+- Count completion from the shared output path, but inspect running processes on the launching host.
+- Estimate both per-host and total concurrency. For example, four servers with `max_jobs=4` each is a 16-job shared-storage run, not four isolated 4-job runs.
+- If I/O wait is high on either host, reduce total jobs even if each individual server still has CPU/RAM headroom.
+
+## Annotation CSV Outputs
+
+Functional annotation outputs should remain in their original tool formats and also be converted to CSV after validation.
+
+Rules:
+
+- Convert only validated annotation outputs; do not turn an error-contaminated partial file into a final CSV.
+- Preserve original files such as `*.emapper.annotations`, DIAMOND TSVs, and `RGI.txt`.
+- Write derived CSV files under the user-confirmed output root.
+- For one source FASTA, derive the CSV name from the input basename and tool/database, for example `sample_001.eggnog.annotations.csv`, `sample_001.vfdb.csv`, or `sample_001.card.csv`.
+- Do not name a single-FASTA result `all_annotations.csv`, `all.emapper.annotations.csv`, `combined_annotations.csv`, `merged_annotations.csv`, or `final_annotations.csv`. These names are reserved for a genuine validated aggregation across an explicitly defined full scope.
+- For a true aggregate, preserve its input manifest and use a scope-bearing filename such as `${project_name}.all_inputs.eggnog.annotations.csv`.
+- Use a parser (`python csv`, `pandas`, `mlr`, or another structured parser) rather than blind delimiter replacement.
+- For eggNOG annotation merging, keep exactly one `#query` header before CSV conversion and append only non-comment data rows.
 
 ## Core Paths Seen In Notes
 
@@ -107,7 +205,7 @@ Prodigal/protein FASTA completion guardrail:
 - If Prodigal reports a failed list but `.faa` file counts appear complete, do not immediately claim both "failed samples exist" and "all `.faa` are usable".
 - Check non-empty files, sequence counts, timestamps and failed-list overlap with actual `.faa` basenames.
 - A complete-looking `.faa` count can mean the failure log is stale, failures were later rerun, output files are empty/partial, or names do not match one-to-one.
-- Do not start eggNOG/CARD/VFDB/CAZy batch scripts until the protein FASTA set has passed a simple integrity check.
+- Do not start eggNOG/CARD/VFDB/FungAMR/CAZy batch scripts until the protein FASTA set has passed a simple integrity check.
 - If only dRep representative MAGs were checked against `.faa` files, report that limited result only. It does not prove all 7,535 Prodigal outputs are complete or suitable for downstream annotation.
 
 ## Single-Sample Functional Annotation Pattern
@@ -132,8 +230,16 @@ VFDB note:
 
 - Set A/Core: experimentally confirmed representative virulence factors; more conservative and precise.
 - Set B/Full: expanded full set including homologs and alleles; higher recall and more false-positive risk.
+- In this workflow, VFDB is for the bacterial/prokaryotic virulence branch. Fungi virulence-factor annotation uses FungAMR instead.
 
-CAZyme and VFDB are DIAMOND searches:
+FungAMR note:
+
+- Use validated MetaEuk fungi proteins as the DIAMOND `blastp` query.
+- Preserve the original FungAMR FASTA. If headers require cleaning before `diamond makedb`, write a separate derived cleaned FASTA rather than overwriting the source database.
+- The observed tutorial removes `##` metadata lines, removes spaces from FASTA headers, builds a FungAMR DIAMOND database, and searches with `--evalue 1e-5 --max-target-seqs 1`.
+- Convert the validated TSV to a source-specific CSV such as `${input_stem}.fungamr.csv`; never call a single fungi FASTA result `all_annotations.csv`.
+
+CAZyme, bacterial VFDB, and fungal FungAMR are DIAMOND searches:
 
 ```bash
 diamond blastp \
@@ -272,14 +378,15 @@ Recent SMGC dRep representative MAG testing exposed run-management pitfalls that
 For eggNOG/mmseqs on Ceph:
 
 1. Split large FASTA at the start, typically to about `1G` per chunk, before memory-heavy eggNOG/database annotation.
-2. For a 24-thread annotation job against an approximately `40G` database, estimate about `60G` memory per job as a working value.
-3. Budget the same job as about `70G` when deciding parallelism, leaving margin for OS cache, temp files and runtime variation.
-4. On an approximately `300G` RAM server, start around 4 concurrent jobs because `4 * 70G = 280G`, which is already close to the memory ceiling.
-5. Keep per-sample CPU explicit and do not increase `max_jobs` just because CPU threads are available.
-6. Use separate database copies for concurrent workers when storage allows.
-7. Watch `iostat -xz 5`; if `%iowait` or device utilization is high, reduce `max_jobs`.
-8. Prefer per-sample temp dirs; use local scratch if available and large enough.
-9. Validate completion before deleting locks or marking runs done.
+2. Derive the number of chunks/batches from input file sizes instead of assuming a fixed count.
+3. For a 24-thread annotation job against an approximately `40G` database, estimate about `60G` memory per job as a working value.
+4. Budget the same job as about `70G` when deciding parallelism, leaving margin for OS cache, temp files and runtime variation.
+5. On an approximately `300G` RAM server, start around 4 concurrent jobs because `4 * 70G = 280G`, which is already close to the memory ceiling.
+6. Keep per-sample CPU explicit and do not increase `max_jobs` just because CPU threads are available.
+7. Use separate database copies for concurrent workers when storage allows.
+8. Watch `iostat -xz 5`; if `%iowait` or device utilization is high, reduce `max_jobs`.
+9. Prefer per-sample temp dirs; use local scratch if available and large enough.
+10. Validate completion before deleting locks or marking runs done.
 
 FASTA splitting caution:
 
@@ -307,7 +414,7 @@ lscpu | egrep 'CPU\(s\)|Thread|Core|Socket|Model name'
 free -h
 df -h /tmp "$PWD" 2>/dev/null
 iostat -xz 5 3
-ps -eo pid,ppid,stat,pcpu,pmem,rss,etime,cmd | grep -E 'emapper|mmseqs|diamond|rgi|prodigal|genomad|barrnap' | grep -v grep
+ps -eo pid,ppid,stat,pcpu,pmem,rss,etime,cmd | grep -Ei 'emapper|mmseqs|diamond|rgi|prodigal|genomad|metaeuk|barrnap' | grep -v grep
 ```
 
 Interpretation rules:

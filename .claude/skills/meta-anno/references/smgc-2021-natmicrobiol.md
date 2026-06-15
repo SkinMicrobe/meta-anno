@@ -138,7 +138,7 @@ Workflow:
 Workflow implication:
 
 - If the user asks for a multi-kingdom annotation workflow, do not push every input through the same bacterial ORF route.
-- Eukaryotic contigs or bins need eukaryote-aware classification, completeness and phylogenomics. This is consistent with the user's rule that eukaryotic input should use `metaeuk` in prediction-stage discussions.
+- Eukaryotic contigs or bins need eukaryote-aware classification, completeness and phylogenomics. In the user's corrected prediction-stage routing, fungal input uses `metaeuk`.
 
 ## Viral Branch
 
@@ -154,7 +154,7 @@ Workflow:
 - Compare viral novelty against IMG/VR and the Gut Phage Database using BLASTn.
 - Classify viral contigs with DemoVir.
 - Cluster viral proteins with vContact2 using DIAMOND mode against RefSeq prokaryotic viruses.
-- Predict viral proteins with Prodigal before protein-content clustering.
+- The paper predicted viral proteins with Prodigal before protein-content clustering; this is paper context, not the user's current tool-routing rule.
 - Functionally characterize jumbo phages with eggNOG in DIAMOND mode.
 - Link phages to hosts using CRISPRCasFinder spacers from prokaryotic MAGs and BLASTn against the viral catalogue.
 
@@ -162,6 +162,7 @@ Workflow implication:
 
 - Viral or mobile-element analysis should be separate from ordinary bacterial functional annotation.
 - For this skill, do not collapse viral discovery, host prediction and phage functional annotation into plain eggNOG or CAZy annotation.
+- For the user's current meta-anno routing, viral input uses `genomad`. If `genomad` is unavailable, fix/install `genomad`; do not substitute Prodigal for the viral branch.
 
 ## Read Mapping, Presence And Abundance
 
@@ -206,7 +207,7 @@ When the user asks how this paper should change a workflow, answer with these pr
 - Treat specialized branches separately: prokaryotic MAGs, eukaryotic MAGs and viral contigs need different tools and validation logic.
 - Keep eggNOG as broad functional evidence, not the sole basis for genome-centred claims.
 - For skin datasets, SMGC can be treated as a reference catalogue or conceptual model for improving classification, not as a replacement for eggNOG, CARD, CAZy or VFDB.
-- Preserve the user's existing prediction-stage rule unless explicitly asked to critique it: mixed FASTA uses `prodigal`, separated prokaryotic input uses `prodigal`, eukaryotic input uses `metaeuk`, bacterial input uses `genomad`, and large FASTA should be split with `seqkit` before memory-heavy annotation.
+- Preserve the user's corrected prediction-stage routing unless explicitly asked to critique it: viral input uses `genomad`, bacterial/prokaryotic input uses `prodigal`, fungal input uses `metaeuk`, and large FASTA/contig input should be split with `seqkit` before memory-heavy annotation.
 
 When adapting the paper to the user's scripts, separate these questions:
 

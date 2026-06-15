@@ -11,7 +11,8 @@ The table includes both functional annotation databases and reference catalogues
 | CAZy / CAZyme | What carbohydrate-active enzyme families are present? | Protein ORFs `.faa` | Protein homology to CAZy families | Glycoside hydrolases, glycosyltransferases, carbohydrate esterases, polysaccharide lyases, auxiliary activities, binding modules |
 | eggNOG | What broad functional, orthology, pathway, and domain annotations fit each protein? | Protein ORFs `.faa` | Orthology transfer from eggNOG groups | COG category, description, gene name, GO, EC, KEGG, BRITE, CAZy, PFAM |
 | CARD via RGI | Which antimicrobial resistance genes or resistance-associated variants are present? | Cleaned protein ORFs `.faa` | CARD resistance models and curated ARO ontology | AMR gene family, drug class, resistance mechanism, strict/perfect/loose hit class |
-| VFDB | Which virulence-factor-like genes are present? | Protein ORFs `.faa` | Protein homology to virulence factor sequences | Candidate virulence factor IDs, genes, and related pathogenicity functions |
+| VFDB | Which bacterial/prokaryotic virulence-factor-like genes are present? | Bacterial/prokaryotic protein ORFs `.faa` | Protein homology to bacterial virulence factor sequences | Candidate virulence factor IDs, genes, and related pathogenicity functions |
+| FungAMR | Which fungi-branch virulence-factor candidates are present in this workflow? | MetaEuk fungi protein `.faa` | DIAMOND protein homology against the FungAMR resource | Candidate fungi virulence-factor matches for downstream review |
 | SMGC | Which skin microbial genomes/viral contigs can improve skin read classification and catalogue-based interpretation? | Reads, assemblies, MAGs, isolate genomes, viral contigs | Skin-specific genome and viral catalogue from cultivation plus metagenomics | Improved skin read assignment, genome-centred prevalence/abundance, skin-specific taxa and viral diversity |
 
 ## CAZy / CAZyme
@@ -108,6 +109,8 @@ Interpretation notes:
 
 VFDB is the Virulence Factor Database. It contains experimentally verified and predicted virulence factors from bacterial pathogens, such as toxins, secretion systems, adhesion factors, invasion factors, capsules, iron uptake systems, immune evasion factors, and motility-related virulence components.
 
+For this workflow, restrict VFDB virulence annotation to the bacterial/prokaryotic branch. Do not use it as the fungi virulence-factor database.
+
 The user's notes distinguish:
 
 | VFDB set | Meaning | Tradeoff |
@@ -129,6 +132,16 @@ Interpretation notes:
 - Set B is useful for screening but should be filtered more carefully than Set A.
 - `sseqid` often contains a `VFG...` identifier and an accession such as `gb|WP_...`.
 
+## FungAMR
+
+In the user's workflow, FungAMR is the designated resource for fungi-branch virulence-factor annotation.
+
+- Input: validated fungi protein FASTA produced by MetaEuk.
+- Search: prepare a DIAMOND database from the FungAMR protein FASTA when needed, then run `diamond blastp`.
+- Preserve the original database FASTA; write any header-cleaned database FASTA as a derived file.
+- Keep original TSV output and generate a source-specific CSV only after validation.
+- Do not replace FungAMR with bacterial VFDB merely because VFDB is already installed.
+
 ## How To Choose Which Database To Trust
 
 Use the database that matches the biological question:
@@ -138,7 +151,8 @@ Use the database that matches the biological question:
 | Broad gene function and pathways | eggNOG |
 | Carbohydrate metabolism and glycan degradation/synthesis | CAZy/CAZyme DIAMOND, with eggNOG CAZy as secondary support |
 | Antibiotic resistance | CARD/RGI |
-| Virulence factors | VFDB |
+| Bacterial/prokaryotic virulence factors | VFDB |
+| Fungi-branch virulence factors | FungAMR |
 | Protein domains | eggNOG PFAM field or a direct Pfam workflow if available |
 | Skin microbiome genome catalogue, MAG comparison, or skin read classification | SMGC-style catalogue/reference mapping; see `references/smgc-2021-natmicrobiol.md` |
 

@@ -86,6 +86,49 @@ export HOST_INDEX=1   # odd-index work in the user's C2/C4 split notes
 bash ./smart_annotation_C4.sh
 ```
 
+## Generic Multi-Server Shared-Path Split
+
+Use this pattern only when the user explicitly requests multi-server execution or confirms a participating server list. If the user does not ask for multiple servers, use the current server only.
+
+When C2/C4 or any other set of servers share the same Ceph path and should split the same input set, set the same user-confirmed `HOST_COUNT` on every server and a different zero-based `HOST_INDEX` on each server.
+
+Examples: for 3 servers use `HOST_COUNT=3` with `HOST_INDEX=0`, `1`, and `2`; for 4 servers use `HOST_COUNT=4` with `HOST_INDEX=0`, `1`, `2`, and `3`.
+
+```bash
+output_root="/path/to/user-confirmed/output_root"
+input_dir="/path/to/input_units"
+HOST_COUNT="${HOST_COUNT:?set total number of servers, for example 2, 3, or 4}"
+HOST_INDEX="${HOST_INDEX:?set this server index from 0 to HOST_COUNT-1}"
+
+mkdir -p "$output_root"/{manifests,logs,pids,exit_codes,tmp}
+
+find "$input_dir" -mindepth 1 -maxdepth 1 -type d ! -name tmp | sort \
+  | awk -v host_index="$HOST_INDEX" -v host_count="$HOST_COUNT" '
+      ((NR - 1) % host_count) == host_index { print }
+    ' > "$output_root/manifests/units_host_${HOST_INDEX}_of_${HOST_COUNT}.txt"
+
+printf 'host=%s host_index=%s host_count=%s assigned_units=%s\n' \
+  "$(hostname)" "$HOST_INDEX" "$HOST_COUNT" \
+  "$(wc -l < "$output_root/manifests/units_host_${HOST_INDEX}_of_${HOST_COUNT}.txt")" \
+  | tee "$output_root/logs/host_${HOST_INDEX}_assignment.log"
+```
+
+For FASTA chunk files instead of sample directories, change the `find` command:
+
+```bash
+find "$batch_dir" -maxdepth 1 -type f \( -name "*.faa" -o -name "*.fa" -o -name "*.fna" -o -name "*.fasta" \) | sort \
+  | awk -v host_index="$HOST_INDEX" -v host_count="$HOST_COUNT" '
+      ((NR - 1) % host_count) == host_index { print }
+    ' > "$output_root/manifests/batches_host_${HOST_INDEX}_of_${HOST_COUNT}.txt"
+```
+
+Each server should launch from its own `screen`/`tmux` session and write a separate monitor log:
+
+```bash
+screen -L -Logfile "$output_root/logs/screen_host_${HOST_INDEX}_$(date +%Y%m%d_%H%M%S).log" \
+  -S "anno_h${HOST_INDEX}"
+```
+
 ## Start A Detached Monitor
 
 ```bash
@@ -96,7 +139,7 @@ nohup bash monitor_emapper.sh > monitor_emapper.nohup.log 2>&1 &
 ## Monitor Processes And I/O
 
 ```bash
-ps -eo pid,ppid,stat,pcpu,pmem,etime,cmd | grep -E 'emapper|mmseqs|diamond|rgi' | grep -v grep
+ps -eo pid,ppid,stat,pcpu,pmem,rss,etime,cmd | grep -Ei 'emapper|mmseqs|diamond|rgi|prodigal|genomad|metaeuk' | grep -v grep
 iostat -xz 5
 free -h
 df -h
@@ -105,7 +148,70 @@ df -h
 Use `watch` only interactively:
 
 ```bash
-watch "ps aux | grep -E 'emapper|mmseqs|diamond|rgi' | grep -v grep"
+watch "ps aux | grep -Ei 'emapper|mmseqs|diamond|rgi|prodigal|genomad|metaeuk' | grep -v grep"
+```
+
+## Estimate Batches From Input Files
+
+Use this before deciding `max_jobs` or writing a production runner. For contigs/nucleotide FASTA, split oversized files before prediction.
+
+```bash
+input_dir="/path/to/input_fastas"
+target_batch_gb=1
+target_batch_bytes=$((target_batch_gb * 1024 * 1024 * 1024))
+mkdir -p "$output_root"/{logs,manifests}
+
+find "$input_dir" -maxdepth 1 -type f \
+  \( -name "*.fa" -o -name "*.fna" -o -name "*.fasta" -o -name "*.faa" \) \
+  -printf '%s\t%p\n' \
+  | sort -nr > "$output_root/manifests/input_sizes.tsv"
+
+awk -v target="$target_batch_bytes" '
+  { n++; sum += $1; if ($1 > max) max = $1 }
+  END {
+    batches = int((sum + target - 1) / target)
+    printf "input_count=%d\n", n
+    printf "total_GB=%.3f\n", sum/1024/1024/1024
+    printf "largest_GB=%.3f\n", max/1024/1024/1024
+    printf "target_batch_GB=%.3f\n", target/1024/1024/1024
+    printf "expected_batches=%d\n", batches
+  }
+' "$output_root/manifests/input_sizes.tsv" | tee "$output_root/logs/input_batch_estimate.txt"
+```
+
+If one file is larger than the target batch size, split that file first and rerun the estimate on the split pieces.
+
+## Mixed Contig Bucket Labels
+
+For mixed contigs, keep branch labels explicit. `unclassified` uses Prodigal as a handling rule, but must not be renamed as bacteria.
+
+```bash
+bucket="unclassified"
+prediction_tool="prodigal"
+output_bucket="unclassified_prodigal"
+```
+
+If a required tool is missing, install or fix the environment for that tool. Do not substitute another prediction tool automatically.
+
+## Continuous Resource Monitor
+
+Run this in a separate `screen`/`tmux` session or as a lightweight detached helper during production jobs. It records CPU, memory, disk space, and read/write I/O repeatedly.
+
+```bash
+output_root="/path/to/user-confirmed/output_root"
+mkdir -p "$output_root/logs"
+
+while true; do
+  echo "===== $(date -Is) ====="
+  hostname
+  free -h
+  df -h /tmp "$PWD" 2>/dev/null
+  ps -eo pid,ppid,stat,pcpu,pmem,rss,etime,cmd \
+    | grep -Ei 'emapper|mmseqs|diamond|rgi|prodigal|genomad|metaeuk' \
+    | grep -v grep || true
+  iostat -xz 5 2
+  sleep 60
+done >> "$output_root/logs/resource_monitor.log" 2>&1
 ```
 
 ## Build DIAMOND Databases
@@ -120,6 +226,43 @@ diamond makedb \
 diamond makedb \
   --in /mnt/cephfs/s2z1/db/VFDB2025/VFDB_setB_pro.fas \
   -d /path/to/VFDB_setB
+```
+
+For the fungi virulence-factor branch, use FungAMR rather than bacterial VFDB. Preserve the original database FASTA and create any cleaned/indexed database under the user-confirmed output root:
+
+```bash
+fungamr_source="/path/to/FungAMR/FungAMR.fasta"
+input_faa="/path/to/metaeuk/fungi_proteins.faa"
+output_root="/path/to/confirmed/output_root"
+db_work="$output_root/databases/fungamr"
+results_dir="$output_root/results"
+
+mkdir -p "$db_work" "$results_dir"
+
+awk '
+  /^##/ {next}
+  /^>/ {
+    gsub(/ \| /, "|", $0)
+    gsub(/ /, "_", $0)
+  }
+  {print}
+' "$fungamr_source" > "$db_work/FungAMR.clean.fasta"
+
+diamond makedb \
+  --in "$db_work/FungAMR.clean.fasta" \
+  --db "$db_work/FungAMR"
+
+input_name=$(basename "$input_faa")
+input_stem="${input_name%.*}"
+
+diamond blastp \
+  --db "$db_work/FungAMR.dmnd" \
+  --query "$input_faa" \
+  --out "$results_dir/${input_stem}.fungamr.tsv" \
+  --outfmt 6 \
+  --evalue 1e-5 \
+  --max-target-seqs 1 \
+  --threads 24
 ```
 
 ## Count Outputs Across Confirmed Function Folders
@@ -218,6 +361,84 @@ printf 'duplicate_query_ids='; awk '!/^#/ {print $1}' "$merged" | sort | uniq -d
 ```
 
 If `query_header_lines` is not `1`, or `duplicate_query_ids` is nonzero in a multi-MAG merge, report the problem before treating the table as final.
+
+## Convert Annotation Tables To CSV
+
+Preserve original annotation files and write CSV copies as derived outputs. Use a parser, not blind tab-to-comma replacement.
+
+For a validated eggNOG `*.emapper.annotations` file produced from one source FASTA, derive the output name from that FASTA. Do not call it `all_annotations.csv` or `all.emapper.annotations.csv`:
+
+```bash
+input_faa="/path/to/sample_001.faa"
+input_name=$(basename "$input_faa")
+input_stem="${input_name%.*}"
+annotation_tsv="$output_root/results/${input_stem}.emapper.annotations"
+annotation_csv="$output_root/results/${input_stem}.eggnog.annotations.csv"
+
+python - "$annotation_tsv" "$annotation_csv" <<'PY'
+import csv
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+
+header = None
+rows = 0
+
+with src.open("r", encoding="utf-8", errors="replace", newline="") as fin, \
+     dst.open("w", encoding="utf-8", newline="") as fout:
+    writer = csv.writer(fout)
+    for line in fin:
+        line = line.rstrip("\n")
+        if not line:
+            continue
+        if line.startswith("#query"):
+            if header is None:
+                header = line.lstrip("#").split("\t")
+                writer.writerow(header)
+            continue
+        if line.startswith("#"):
+            continue
+        writer.writerow(line.split("\t"))
+        rows += 1
+
+if header is None:
+    raise SystemExit(f"missing #query header in {src}")
+if rows == 0:
+    raise SystemExit(f"no annotation data rows in {src}")
+print(f"csv_rows={rows} csv={dst}")
+PY
+```
+
+For DIAMOND outfmt 6 TSV, write the known columns before converting:
+
+```bash
+input_faa="/path/to/sample_001.faa"
+input_name=$(basename "$input_faa")
+input_stem="${input_name%.*}"
+diamond_tsv="$output_root/results/${input_stem}.vfdb.tsv"
+diamond_csv="$output_root/results/${input_stem}.vfdb.csv"
+
+python - "$diamond_tsv" "$diamond_csv" <<'PY'
+import csv
+import sys
+from pathlib import Path
+
+cols = ["qseqid","sseqid","pident","length","mismatch","gapopen","qstart","qend","sstart","send","evalue","bitscore"]
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+
+with src.open("r", encoding="utf-8", errors="replace", newline="") as fin, \
+     dst.open("w", encoding="utf-8", newline="") as fout:
+    writer = csv.writer(fout)
+    writer.writerow(cols)
+    for line in fin:
+        line = line.rstrip("\n")
+        if line:
+            writer.writerow(line.split("\t"))
+PY
+```
 
 ## Recover A Suspect Ceph Mount
 

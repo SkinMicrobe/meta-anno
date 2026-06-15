@@ -12,13 +12,60 @@ Use this file when explaining what each tool does in the meta-annotation workflo
 | `diamond blastp` | Fast protein-vs-protein homology search | Query protein `.faa` and `.dmnd` database | BLAST outfmt 6 TSV | I/O bottleneck, low-specificity hits, only top hit retained |
 | `emapper.py` | eggNOG mapper for orthology-based functional annotation | Query protein `.faa` | `*.emapper.annotations`, seed orthologs, logs | Database path/version mismatch, MMseqs memory/I/O pressure |
 | `mmseqs` | Search backend used by eggNOG in large batch runs | Called by `emapper.py -m mmseqs` | Intermediate search results | High memory and database I/O |
+| `prodigal` | Bacterial/prokaryotic ORF prediction from nucleotide FASTA | Contigs/MAG nucleotide `.fa/.fna/.fasta` | Protein `.faa`, CDS outputs if requested | Effectively single-threaded; many contigs require batching |
+| `metaeuk` | Fungal gene prediction branch | Fungal/eukaryotic nucleotide FASTA | Predicted proteins and gene calls | Resource use and output layout depend on database/settings |
+| `genomad` | Viral branch for viral sequence identification/annotation | Viral or virus-suspect nucleotide FASTA | geNomad result directories/tables | Database and temp I/O can be heavy |
 | `rgi` | CARD Resistance Gene Identifier | Clean protein `.faa` or contig FASTA | `RGI.txt` and auxiliary files | DIAMOND version/env mismatch, interpreting nudged/loose hits incorrectly |
+| `FungAMR` via DIAMOND | Fungi-branch virulence-factor annotation in this workflow | MetaEuk fungi protein `.faa` | FungAMR outfmt 6 TSV and derived CSV | Do not substitute bacterial VFDB; preserve/clean database headers before indexing when required |
 | `sed` | Lightweight stream editing | FASTA text | Cleaned FASTA | Overbroad edits if pattern is wrong |
 | `find` / `sort` / `wc` | Discover sample folders and count outputs | Directory tree | File/sample lists and counts | Counting partial outputs as completed |
 | `ps` / `lsof` / `stat` | Runtime and lock ownership inspection | PID/path/lock file | Process and file metadata | Removing active locks by mistake |
 | `top` / `htop` / `iostat` / `free` / `df` | Resource monitoring | Host runtime state | CPU/RAM/I/O/disk usage | Looking only at CPU while I/O is bottleneck |
 | `nohup` | Keep simple monitor/helper jobs running after shell exits | Shell command | Background process and `nohup.out` | Logs go to default `nohup.out` unless redirected |
 | `watch` | Interactive repeated command display | Shell command | Refreshing terminal output | Blocks scripts if placed inside batch code |
+
+## Prediction Tool Routing
+
+Use the user's corrected routing when nucleotide input needs an upstream prediction/classification branch:
+
+```text
+virus  -> genomad
+bacteria/prokaryote -> prodigal
+unclassified -> prodigal
+fungi -> metaeuk
+```
+
+Do not route bacterial input to `genomad`. If the input is mixed or the biological target is unclear, keep `organism_type` and `prediction_tool` explicit and ask/verify rather than silently picking one tool.
+
+If the input is contigs and the source is unclear, default to `organism_type=mixed` / mixed contigs. Do not infer bacterial/prokaryotic routing from the file name or path alone.
+
+For mixed contigs with classification evidence, route unclassified contigs to `prodigal` but keep the bucket labeled as unclassified, such as `unclassified_prodigal`. This is not evidence that they are bacteria.
+
+Do not substitute tools because one is missing. Missing `genomad`, `metaeuk`, or `prodigal` should trigger environment activation or installation in the user-confirmed environment; if that fails, report the branch as blocked rather than changing the route.
+
+For contigs or other nucleotide FASTA input, split into smaller FASTA files before planning production runs. Size batches from actual input file sizes and monitor CPU, memory, and I/O during the run.
+
+For virulence-factor routing:
+
+```text
+bacteria/prokaryote proteins -> VFDB
+fungi proteins -> FungAMR
+```
+
+Do not send MetaEuk fungi proteins to the bacterial VFDB virulence branch. If FungAMR is unavailable, activate/prepare the requested FungAMR resource or report that branch as blocked rather than silently changing databases.
+
+## Taxonomic Classifier Selection
+
+For mixed or unclear contigs, expose the classifier as an explicit choice:
+
+```text
+taxonomy_classifier = existing | kraken2 | deepmicroclass | auto
+```
+
+- `Kraken2`: fast and useful for preliminary screening or when turnaround time is the priority, but it can make unreliable or overconfident taxonomic assignments. Treat its output as provisional and retain uncertainty/unclassified records.
+- `DeepMicroClass` (`DMC`): slower, but preferred when higher classification accuracy is required and the runtime/resource cost is acceptable.
+- Do not silently switch between `Kraken2` and `DeepMicroClass`. Use the user's selected classifier, reuse an existing valid result when present, and attempt installation in the confirmed conda environment if the selected tool is missing.
+- Classification chooses the biological routing evidence; it does not replace the downstream branch tools: bacteria/archaea and unclassified use `prodigal`, fungi use `metaeuk`, and viruses use `genomad`.
 
 ## screen
 
@@ -147,11 +194,11 @@ Inputs:
 - Protein FASTA (`.faa`, usually `sample.clean.faa`).
 - eggNOG database directory.
 
-Input-type note:
+Input-type rule:
 
-- eggNOG mapper has modes that can work from nucleotide sequences, but in this workflow prefer explicit protein FASTA input.
-- If the user provides nucleotide contigs/MAGs/assemblies, add a gene/ORF prediction stage first and feed the resulting `.faa` into eggNOG.
-- This avoids slow nucleotide-mode annotation, makes input integrity easier to check, and gives clearer resource estimates.
+- In this workflow, eggNOG/CARD/VFDB/FungAMR/CAZy/RGI annotation inputs must be protein FASTA (`.faa`).
+- If the user provides nucleotide contigs/MAGs/assemblies, add the appropriate prediction/translation stage first and feed the resulting validated `.faa` into annotation.
+- Do not plan production annotation directly from raw nucleotide FASTA.
 
 Outputs:
 
@@ -159,6 +206,7 @@ Outputs:
 - `*.emapper.seed_orthologs`: seed ortholog hits.
 - `eggnog_run.log`: per-sample log in the user's batch scripts.
 - Temporary MMseqs/DIAMOND files under `--temp_dir`.
+- Derived CSV copies should be written after validation, while preserving the original annotation files.
 
 Interpretation:
 
@@ -195,10 +243,24 @@ Operational notes:
 Monitor:
 
 ```bash
-ps -eo pid,ppid,stat,pcpu,pmem,etime,cmd | grep -E 'emapper|mmseqs' | grep -v grep
+ps -eo pid,ppid,stat,pcpu,pmem,etime,cmd | grep -Ei 'emapper|mmseqs' | grep -v grep
 free -h
 iostat -xz 5
 ```
+
+## Annotation To CSV
+
+Annotation CSVs are derived outputs for downstream analysis; they should not replace original tool outputs.
+
+Preferred rules:
+
+- Validate the annotation file first.
+- Preserve original `*.emapper.annotations`, DIAMOND TSVs, and `RGI.txt`.
+- For a result derived from one FASTA, include the source basename and annotation source in the CSV filename, such as `sample_001.eggnog.annotations.csv` or `sample_001.vfdb.csv`.
+- Never label a single-input result as `all_annotations`, `combined_annotations`, `merged_annotations`, or another global result. Reserve aggregate naming for a validated merge across the explicitly declared full input scope.
+- Use a structured parser such as Python `csv` or `pandas`.
+- For eggNOG, keep one `#query` header and exclude comment rows before CSV conversion.
+- Do not use blind `tr '\t' ','` conversion because descriptions and metadata can contain characters that need CSV quoting.
 
 ## RGI
 
@@ -310,6 +372,14 @@ How to interpret:
 - High I/O wait (`wa`) or disk utilization: storage-bound, reduce `max_jobs` or move database/temp to faster storage.
 - High memory usage/swap: reduce `max_jobs`, reduce `--cpu`, or avoid `--dbmem`.
 - Full temp/output filesystem: jobs may fail or produce partial outputs.
+
+For production monitoring, include the upstream prediction tools as well as annotation tools:
+
+```bash
+ps -eo pid,ppid,stat,pcpu,pmem,rss,etime,cmd | grep -Ei 'emapper|mmseqs|diamond|rgi|prodigal|genomad|metaeuk' | grep -v grep
+iostat -xz 5
+free -h
+```
 
 ## nohup
 
